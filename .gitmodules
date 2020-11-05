@@ -1,0 +1,3 @@
+[submodule "vendors/libtcod"]
+	path = vendors/libtcod
+	url = git@github.com:libtcod/libtcod.git

@@ -2,7 +2,7 @@
 //#define NO_SDL_SAMPLE
 
 #include <SDL2/SDL.h>
-#include <libtcod/libtcod.h>
+#include <libtcod.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h> /* for NULL */
