@@ -17,6 +17,7 @@ set_target_properties(
 
 if(CMAKE_COMPILER_IS_GNUCC)
 	target_compile_options(game PRIVATE -pedantic-errors)
+	target_compile_options(game PRIVATE -g)
 endif()
 
 # TODO: maybe do find_package() instead and remove vendors/libtcod
