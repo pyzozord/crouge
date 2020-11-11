@@ -242,27 +242,22 @@ int main(int argc, char* argv[]) {
 	TCOD_key_t key = {TCODK_NONE, 0};
         TCOD_mouse_t mouse;
 
-	//TCOD_console_set_custom_font(font, font_flags, nb_char_horiz, nb_char_vertic);
-	TCOD_tileset_load_truetype_("/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf", GLYPH_W, GLYPH_H);
-
-	//TCOD_sys_force_fullscreen_resolution(1280, 720);
-
 	TCOD_sys_get_current_resolution(&sw, &sh);
 
 	SAMPLE_SCREEN_WIDTH = CONSOLE_WIDTH = sw / GLYPH_W;
 	SAMPLE_SCREEN_HEIGHT = CONSOLE_HEIGHT = sh / GLYPH_H;
 
-	if (TCOD_console_init_root(CONSOLE_WIDTH, CONSOLE_HEIGHT, "libtcod C sample", false, TCOD_RENDERER_OPENGL2)) {
+	TCOD_tileset_load_truetype_("/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf", GLYPH_W, GLYPH_H);
+
+	if (TCOD_console_init_root(CONSOLE_WIDTH, CONSOLE_HEIGHT, "CROGUE", false, TCOD_RENDERER_OPENGL2)) {
 		fprintf(stderr, "libtcod error: %s\n", TCOD_get_error());
 		return 1;
 	}
 	atexit(TCOD_quit);
 
+	TCOD_sys_set_fps(60);
 	sample_console = TCOD_console_new(SAMPLE_SCREEN_WIDTH, SAMPLE_SCREEN_HEIGHT);
 
-	TCOD_sys_set_fps(60);
-
-	int i;
 	do {
 		// render game
 		render_fov(&key);
