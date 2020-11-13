@@ -10,20 +10,20 @@ void *main_memory;
 
 /* stack */
 
-struct StackItem {
+struct mem_stack_item {
 	size_t size;
-	struct StackItem *previous;
+	struct mem_stack_item *previous;
 };
 
-struct Stack { 
+struct mem_stack { 
 	void *storage;
 	size_t size;
-	struct StackItem *last;
+	struct mem_stack_item *last;
 };
 
-struct Stack *stack_init(void *storage, size_t size) {
-	size_t header_s = sizeof(struct Stack);
-	struct Stack *header = storage;
+struct mem_stack *mem_stack_init(void *storage, size_t size) {
+	size_t header_s = sizeof(struct mem_stack);
+	struct mem_stack *header = storage;
 
 	header->storage = (char *)storage + header_s;
 	header->size = size - header_s;
@@ -33,8 +33,8 @@ struct Stack *stack_init(void *storage, size_t size) {
 	return header;
 }
 
-void *stack_push(struct Stack *stack, size_t size) {
-	struct StackItem *next = (struct StackItem *)((char *)(stack->last+1) + stack->last->size);
+void *mem_stack_push(struct mem_stack *stack, size_t size) {
+	struct mem_stack_item *next = (struct mem_stack_item *)((char *)(stack->last+1) + stack->last->size);
 	if ((char *)next > (char *)stack->storage + stack->size)
 		return 0;
 	next->size = size;
@@ -43,7 +43,7 @@ void *stack_push(struct Stack *stack, size_t size) {
 	return next+1;
 }
 
-int stack_pop(struct Stack *stack) {
+int mem_stack_pop(struct mem_stack *stack) {
 	if (!stack->last->previous)
 		return 1;
 	stack->last = stack->last->previous;
@@ -52,98 +52,162 @@ int stack_pop(struct Stack *stack) {
 
 /* pool */
 
-struct PoolItem {
-	struct PoolItem *next;
+struct mem_pool_item {
+	struct mem_pool_item *next;
 };
 
-struct Pool {
+struct mem_pool {
 	void *storage;
 	size_t size;
 	size_t item_size;
-	struct PoolItem *first;
+	struct mem_pool_item *first;
 };
 
-size_t PoolItem_size(size_t item_size) {
-	return sizeof(struct PoolItem) + item_size;
+size_t mem_pool_item_size(size_t item_size) {
+	return sizeof(struct mem_pool_item) + item_size;
 }
 
-unsigned pool_max_items(size_t size, size_t item_size) {
-	long result = (long)(size - sizeof(struct Pool)) / (long)PoolItem_size(item_size);
+unsigned mem_pool_max_items(size_t size, size_t item_size) {
+	long result = (long)(size - sizeof(struct mem_pool)) / (long)mem_pool_item_size(item_size);
 	return result < 0 ? 0 : result;
 }
 
-struct Pool *pool_init(void *storage, size_t size, size_t item_size) {
-	unsigned count = pool_max_items(size, item_size);
-	size_t PoolItem_s = PoolItem_size(item_size);
+struct mem_pool *mem_pool_init(void *storage, size_t size, size_t item_size) {
+	unsigned count = mem_pool_max_items(size, item_size);
+	size_t mem_pool_item_s = mem_pool_item_size(item_size);
 
-	if (size - sizeof(struct Pool) != count * PoolItem_s)
+	if (size - sizeof(struct mem_pool) != count * mem_pool_item_s)
 		return 0;
-	size_t header_s = sizeof(struct Pool);
-	struct Pool *header = storage;
+	size_t header_s = sizeof(struct mem_pool);
+	struct mem_pool *header = storage;
 
 	header->size = size;
 	header->item_size = item_size;
-	header->storage = (char *)storage + sizeof(struct Pool);
+	header->storage = (char *)storage + sizeof(struct mem_pool);
 	header->first = header->storage;
 
-	struct PoolItem *pi = header->first;
+	struct mem_pool_item *pi = header->first;
 
 	for (int i = 1; i < count; pi = pi->next, i++)
-		pi->next = (struct PoolItem *)((char *)pi + PoolItem_s);
+		pi->next = (struct mem_pool_item *)((char *)pi + mem_pool_item_s);
 
 	pi->next = 0;
 	return header;
 }
 
-struct Pool *pool_initc(void *storage, size_t size, size_t item_size) {
-	unsigned count = pool_max_items(size, item_size);
+struct mem_pool *mem_pool_initc(void *storage, size_t size, size_t item_size) {
+	unsigned count = mem_pool_max_items(size, item_size);
 	if (count == 0) {
 		return 0;
 	}
-	size_t PoolItem_s = PoolItem_size(item_size);
-	size_t allocated = sizeof(struct Pool) + count * PoolItem_s;
-	return pool_init(storage, allocated, item_size);
+	size_t mem_pool_item_s = mem_pool_item_size(item_size);
+	size_t allocated = sizeof(struct mem_pool) + count * mem_pool_item_s;
+	return mem_pool_init(storage, allocated, item_size);
 }
 
-void *pool_alloc(struct Pool *pool) {
-	struct PoolItem *free = pool->first;
+void *mem_pool_alloc(struct mem_pool *pool) {
+	struct mem_pool_item *free = pool->first;
 	if (!free) 
 		return 0;
 	pool->first = pool->first->next;
 	return free+1;
 }
 
-void *pool_free(struct Pool *pool, void *p) {
-	struct PoolItem *item = (struct PoolItem *)((char *)p - sizeof(struct PoolItem));
+void *mem_pool_free(struct mem_pool *pool, void *p) {
+	struct mem_pool_item *item = (struct mem_pool_item *)((char *)p - sizeof(struct mem_pool_item));
 	item->next = pool->first;
 	pool->first = item;
 }
 
-/* TODO: free list */
+/* free list */
+
+struct mem_freelist_item {
+	struct mem_freelist_item *next;
+	size_t size;
+};
+
+struct mem_freelist {
+	void *storage;
+	size_t size;
+	struct mem_freelist_item *first;
+};
+
+struct mem_freelist *mem_freelist_init(void *storage, size_t size) {
+	size_t header_s = sizeof(struct mem_freelist);
+	struct mem_freelist *header = storage;
+
+	header->size = size - sizeof(struct mem_freelist);
+	header->storage = (char *)storage + sizeof(struct mem_freelist);
+	header->first = header->storage;
+	header->first->next = 0;
+	header->first->size = header->size - sizeof(struct mem_freelist_item);
+
+	return header;
+}
+
+void *mem_freelist_alloc(struct mem_freelist *freelist, size_t size) {
+	size_t total_size = size + sizeof(struct mem_freelist_item);
+	struct mem_freelist_item *curr = freelist->first;
+
+	for (; curr && curr->size < total_size; curr = curr->next)
+		;
+	if (!curr) 
+		return 0;
+
+	curr->size -= total_size;
+	curr = (struct mem_freelist_item*)((char *)curr + curr->size + sizeof(struct mem_freelist_item));
+	curr->size = size;
+	return curr+1;
+}
+
+void *mem_freelist_free(struct mem_freelist *freelist, void *p) {
+	struct mem_freelist_item *curr = freelist->first;
+	struct mem_freelist_item *freed = (struct mem_freelist_item*)p-1;
+
+	for (; curr->next && curr->next < freed; curr = curr->next)
+		;
+
+        if ((struct mem_freelist_item*)((char *)(freed+1) + freed->size) == curr->next) {
+                freed->size += curr->next->size + sizeof(struct mem_freelist_item);
+                freed->next = curr->next->next;
+        } else
+                freed->next = curr->next;
+
+        if ((char*)(curr+1) + curr->size == (char *)freed) {
+                curr->size += freed->size + sizeof(struct mem_freelist_item);
+                curr->next = freed->next;
+        } else  
+                curr->next = freed;
+}
 
 int main() {
-	main_memory = malloc(1 * GB);
-	struct Stack *stack = stack_init(main_memory, 1 * GB); // entire memory is a stack
+	void *main_memory = malloc(1*GB);
 
-	void *pool_storage = stack_push(stack, 200 * MB);
-	struct Pool *pool = pool_initc(pool_storage, 200 * MB, sizeof(int));
+	struct mem_freelist *freelist = mem_freelist_init(main_memory, 1*GB);
 
-	int *i1 = pool_alloc(pool);
-	int *i2 = pool_alloc(pool);
-	int *i3 = pool_alloc(pool);
+	printf("full freelist size %d\n", freelist->first->size);
 
+	int *i1 = mem_freelist_alloc(freelist, sizeof(int));
 	*i1 = 11;
+
+	printf("1 int freelist size %d\n", freelist->first->size);
+
+	int *i2 = mem_freelist_alloc(freelist, sizeof(int));
 	*i2 = 22;
+
+	printf("2 ints freelist size %d\n", freelist->first->size);
+
+	mem_freelist_free(freelist, i2);
+
+	printf("1 int freed freelist size %d\n", freelist->first->size);
+
+	int *i3 = mem_freelist_alloc(freelist, sizeof(int));
 	*i3 = 33;
 
-	printf("%d %d %d\n", *i1, *i2, *i3);
-
-	pool_free(pool, i2);
-
-	int *i4 = pool_alloc(pool);
-	*i4 = 44;
-
-	printf("%d %d %d\n", *i1, *i2, *i3); // i4 has been allocated in place of i2
-
+	printf("%d %ld\n", *i1, *i2); // i2 doesn't exist but i3 is on the same place as i2 was
+	printf("2 ints freelist size %ld\n", freelist->first->size);
+	mem_freelist_free(freelist, i1);
+	mem_freelist_free(freelist, i3);
+	printf("all freed freelist size %ld\n", freelist->first->size);
 	return 0;
 }
