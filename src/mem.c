@@ -10,44 +10,44 @@ void *main_memory;
 
 /* stack */
 
-struct mem_stack_item {
-	size_t size;
-	struct mem_stack_item *previous;
+struct mem_stack_frame {
+	struct mem_stack_frame *prev;
 };
 
 struct mem_stack { 
 	void *storage;
 	size_t size;
-	struct mem_stack_item *last;
+	struct mem_stack_frame *last;
+	void *top;
 };
 
 struct mem_stack *mem_stack_init(void *storage, size_t size) {
-	size_t header_s = sizeof(struct mem_stack);
 	struct mem_stack *header = storage;
 
-	header->storage = (char *)storage + header_s;
-	header->size = size - header_s;
+	header->storage = (char *)storage + sizeof(struct mem_stack);
+	header->size = size - sizeof(struct mem_stack);
+	header->top = (char*)header->storage + sizeof(struct mem_stack_frame);
 	header->last = header->storage;
-	header->last->previous = 0;
-	header->last->size = 0;
+	header->last->prev = 0;
 	return header;
 }
 
-void *mem_stack_push(struct mem_stack *stack, size_t size) {
-	struct mem_stack_item *next = (struct mem_stack_item *)((char *)(stack->last+1) + stack->last->size);
-	if ((char *)next > (char *)stack->storage + stack->size)
-		return 0;
-	next->size = size;
-	next->previous = stack->last;
-	stack->last = next;
-	return next+1;
+void mem_stack_frame_push(struct mem_stack *stack) {
+	struct mem_stack_frame *frame = stack->top;
+	stack->top = (char*)stack->top + sizeof(*frame);
+	frame->prev = stack->last;
+	stack->last = frame;
 }
 
-int mem_stack_pop(struct mem_stack *stack) {
-	if (!stack->last->previous)
-		return 1;
-	stack->last = stack->last->previous;
-	return 1;
+void mem_stack_frame_pop(struct mem_stack *stack) {
+	stack->top = (char*)stack->last + sizeof(struct mem_stack_frame);
+	stack->last = stack->last->prev;
+}
+
+void *mem_stack_push(struct mem_stack *stack, size_t size) {
+	void *p = stack->top;
+	stack->top = (char*)stack->top + size;
+	return p;
 }
 
 /* pool */
@@ -181,33 +181,41 @@ void *mem_freelist_free(struct mem_freelist *freelist, void *p) {
 }
 
 int main() {
-	void *main_memory = malloc(1*GB);
+	void *main_memory = malloc(1 * GB);
+	struct mem_stack *stack = mem_stack_init(main_memory, 1 * GB);
+	printf("stack %p\n", (void*) stack);
 
-	struct mem_freelist *freelist = mem_freelist_init(main_memory, 1*GB);
+	printf("stack->top %p\n", (void*) stack->top);
+	printf("stack->last %p\n", (void*) stack->last);
 
-	printf("full freelist size %d\n", freelist->first->size);
-
-	int *i1 = mem_freelist_alloc(freelist, sizeof(int));
+	int *i1 = mem_stack_push(stack, sizeof(int));
 	*i1 = 11;
-
-	printf("1 int freelist size %d\n", freelist->first->size);
-
-	int *i2 = mem_freelist_alloc(freelist, sizeof(int));
+	int *i2 = mem_stack_push(stack, sizeof(int));
 	*i2 = 22;
 
-	printf("2 ints freelist size %d\n", freelist->first->size);
+	printf("%d %d\n", *i1, *i2);
 
-	mem_freelist_free(freelist, i2);
+	mem_stack_frame_push(stack);
 
-	printf("1 int freed freelist size %d\n", freelist->first->size);
-
-	int *i3 = mem_freelist_alloc(freelist, sizeof(int));
+	int *i3 = mem_stack_push(stack, sizeof(int));
 	*i3 = 33;
+	int *i4 = mem_stack_push(stack, sizeof(int));
+	*i4 = 44;
 
-	printf("%d %ld\n", *i1, *i2); // i2 doesn't exist but i3 is on the same place as i2 was
-	printf("2 ints freelist size %ld\n", freelist->first->size);
-	mem_freelist_free(freelist, i1);
-	mem_freelist_free(freelist, i3);
-	printf("all freed freelist size %ld\n", freelist->first->size);
-	return 0;
+	printf("%d %d %d %d\n", *i1, *i2, *i3, *i4);
+
+	printf("stack->top %p\n", (void*) stack->top);
+	printf("stack->last %p\n", (void*) stack->last);
+
+	mem_stack_frame_pop(stack);
+
+	int *i5 = mem_stack_push(stack, sizeof(int));
+	*i5 = 55;
+	int *i6 = mem_stack_push(stack, sizeof(int));
+	*i6 = 66;
+
+	printf("%d %d %d %d %d %d\n", *i1, *i2, *i3, *i4, *i5, *i6);
+
+	printf("stack->top %p\n", (void*) stack->top);
+	printf("stack->last %p\n", (void*) stack->last);
 }
