@@ -5,10 +5,11 @@ if(CMAKE_COMPILER_IS_GNUCC)
 	add_compile_options(-pedantic-errors -g)
 endif()
 
-add_executable(test src/mem.c)
+# add_executable(test src/mem.c)
 
 set(
 	sources
+	src/mem.c
 	src/main.c
 )
 
