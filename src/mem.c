@@ -53,7 +53,7 @@ void *mem_stack_push(struct mem_stack *stack, size_t size) {
 /* pool */
 
 struct mem_pool_item {
-	struct mem_pool_item *next;
+	struct mem_pool_item *prev;
 };
 
 struct mem_pool {
@@ -63,60 +63,43 @@ struct mem_pool {
 	struct mem_pool_item *first;
 };
 
-size_t mem_pool_item_size(size_t item_size) {
-	return sizeof(struct mem_pool_item) + item_size;
-}
-
-unsigned mem_pool_max_items(size_t size, size_t item_size) {
-	long result = (long)(size - sizeof(struct mem_pool)) / (long)mem_pool_item_size(item_size);
-	return result < 0 ? 0 : result;
-}
-
 struct mem_pool *mem_pool_init(void *storage, size_t size, size_t item_size) {
-	unsigned count = mem_pool_max_items(size, item_size);
-	size_t mem_pool_item_s = mem_pool_item_size(item_size);
-
-	if (size - sizeof(struct mem_pool) != count * mem_pool_item_s)
+	if (size < sizeof(struct mem_pool) || size - sizeof(struct mem_pool) < item_size || item_size < sizeof(struct mem_pool_item))
 		return 0;
-	size_t header_s = sizeof(struct mem_pool);
+
+	unsigned count = (size - sizeof(struct mem_pool)) / item_size;
+
 	struct mem_pool *header = storage;
 
-	header->size = size;
+	header->size = size - sizeof(struct mem_pool);
 	header->item_size = item_size;
 	header->storage = (char *)storage + sizeof(struct mem_pool);
 	header->first = header->storage;
 
 	struct mem_pool_item *pi = header->first;
-
-	for (int i = 1; i < count; pi = pi->next, i++)
-		pi->next = (struct mem_pool_item *)((char *)pi + mem_pool_item_s);
-
-	pi->next = 0;
+	pi->prev = 0;
 	return header;
-}
-
-struct mem_pool *mem_pool_initc(void *storage, size_t size, size_t item_size) {
-	unsigned count = mem_pool_max_items(size, item_size);
-	if (count == 0) {
-		return 0;
-	}
-	size_t mem_pool_item_s = mem_pool_item_size(item_size);
-	size_t allocated = sizeof(struct mem_pool) + count * mem_pool_item_s;
-	return mem_pool_init(storage, allocated, item_size);
 }
 
 void *mem_pool_alloc(struct mem_pool *pool) {
 	struct mem_pool_item *free = pool->first;
-	if (!free) 
-		return 0;
-	pool->first = pool->first->next;
-	return free+1;
+	if (free->prev)
+		pool->first = pool->first->prev;
+	else {
+		struct mem_pool_item *first = (struct mem_pool_item*)((char*)free + pool->item_size);
+		if ((char*)first > (char*)(pool+1) + pool->size) {
+			return 0;
+		}
+		pool->first = first;
+		pool->first->prev = 0;
+	}
+	return free;
 }
 
 void *mem_pool_free(struct mem_pool *pool, void *p) {
-	struct mem_pool_item *item = (struct mem_pool_item *)((char *)p - sizeof(struct mem_pool_item));
-	item->next = pool->first;
-	pool->first = item;
+	struct mem_pool_item *prev = pool->first;
+	pool->first = p;
+	pool->first->prev = prev;
 }
 
 /* free list */
@@ -182,40 +165,26 @@ void *mem_freelist_free(struct mem_freelist *freelist, void *p) {
 
 int main() {
 	void *main_memory = malloc(1 * GB);
-	struct mem_stack *stack = mem_stack_init(main_memory, 1 * GB);
-	printf("stack %p\n", (void*) stack);
-
-	printf("stack->top %p\n", (void*) stack->top);
-	printf("stack->last %p\n", (void*) stack->last);
-
-	int *i1 = mem_stack_push(stack, sizeof(int));
+	struct mem_pool *pool = mem_pool_init(main_memory, 32+sizeof(int)*2*2, sizeof(int)*2);
+	printf("pool %p\n", (void*) pool);
+	printf("pool->first %p\n", (void*) pool->first);
+	int *i1 = mem_pool_alloc(pool);
 	*i1 = 11;
-	int *i2 = mem_stack_push(stack, sizeof(int));
+	printf("%d %p\n", *i1, (void*) i1);
+	int *i2 = mem_pool_alloc(pool);
 	*i2 = 22;
-
-	printf("%d %d\n", *i1, *i2);
-
-	mem_stack_frame_push(stack);
-
-	int *i3 = mem_stack_push(stack, sizeof(int));
-	*i3 = 33;
-	int *i4 = mem_stack_push(stack, sizeof(int));
+	printf("%d %p\n", *i2, (void*) i2);
+	int *i3 = mem_pool_alloc(pool);
+	if (i3) {
+		*i3 = 33;
+		printf("%d %p\n", *i3, (void*) i3);
+		printf("pool->first %p\n", (void*) pool->first);
+	}
+	mem_pool_free(pool, i2);
+	printf("pool->first %p\n", (void*) pool->first);
+	int *i4 = mem_pool_alloc(pool);
 	*i4 = 44;
-
-	printf("%d %d %d %d\n", *i1, *i2, *i3, *i4);
-
-	printf("stack->top %p\n", (void*) stack->top);
-	printf("stack->last %p\n", (void*) stack->last);
-
-	mem_stack_frame_pop(stack);
-
-	int *i5 = mem_stack_push(stack, sizeof(int));
-	*i5 = 55;
-	int *i6 = mem_stack_push(stack, sizeof(int));
-	*i6 = 66;
-
-	printf("%d %d %d %d %d %d\n", *i1, *i2, *i3, *i4, *i5, *i6);
-
-	printf("stack->top %p\n", (void*) stack->top);
-	printf("stack->last %p\n", (void*) stack->last);
+	printf("%d %p\n", *i4, (void*) i4);
+	printf("pool->first %p\n", (void*) pool->first);
+	printf("%d %d %d %d\n", *i1, *i2, i3 ? *i3 : -1, *i4);
 }
